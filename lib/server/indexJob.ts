@@ -7,6 +7,7 @@ import { resolveGraphRagEnv } from './graphragEnv'
 import { rememberBuildProvider, resolveProviderEnv, type BuildProvider } from './providerConfig'
 import { EMBED_API_BASE, ensureEmbedServer } from './embedServer'
 import { LLM_API_BASE, ensureLlmServer } from './llmServer'
+import { redactSecrets } from './redact'
 
 export type IndexJobStatus = 'running' | 'succeeded' | 'failed' | 'stopped'
 
@@ -114,15 +115,15 @@ export async function stopIndexJob(): Promise<{ ok: boolean; code: string; jobId
 const FATAL_PATTERNS: Array<{ pattern: RegExp; message: string }> = [
   {
     pattern: /insufficient_quota|exceeded your current quota|credit balance is too low/i,
-    message: 'Provider quota exhausted (429). Every request is being rejected — add credits to the Anthropic account or use the Ollama preset, then rebuild.',
+    message: 'Provider quota exhausted (429). Every request is being rejected — add credits to your OpenAI, Anthropic or Gemini account, or use the Ollama preset, then rebuild.',
   },
   {
-    pattern: /invalid_api_key|incorrect api key|invalid x-api-key|AuthenticationError/i,
-    message: 'API key rejected (401). Re-enter the key in Projects → Build providers.',
+    pattern: /invalid_api_key|incorrect api key|invalid x-api-key|API_KEY_INVALID|API key not valid|AuthenticationError/i,
+    message: 'API key rejected (401). Re-enter the key in Projects → Model settings.',
   },
   {
     pattern: /model_not_found|not_found_error|does not exist or you do not have access/i,
-    message: 'The configured model is not available to this API key. Check GRAPHRAG_COMPLETION_MODEL / GRAPHRAG_EMBEDDING_MODEL in .env.',
+    message: 'The configured model is not available to this API key. Check the model names in Projects → Model settings.',
   },
 ]
 
@@ -239,11 +240,11 @@ async function runJob(job: IndexJob, env: NodeJS.ProcessEnv, completionModel: st
 
   const appendLog = async (line: string) => {
     try {
-      await fs.appendFile(logHistoryPath, `${new Date().toISOString()}\t${line.replace(/\r?\n/g, ' ')}\n`)
+      await fs.appendFile(logHistoryPath, `${new Date().toISOString()}\t${redactSecrets(line).replace(/\r?\n/g, ' ')}\n`)
     } catch {}
   }
   const emit = (event: IndexJobEvent) => {
-    try { job.emitter.emit('event', event) } catch {}
+    try { job.emitter.emit('event', event.type === 'log' ? { ...event, line: redactSecrets(event.line) } : event) } catch {}
   }
   const log = (line: string) => {
     emit({ type: 'log', line })

@@ -6,6 +6,19 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { CLOUD_PROVIDER_IDS, PROVIDER_ADAPTERS, type BuildProvider, type CloudProviderId, type EmbeddingSource, type ProviderAdapter } from '@/lib/providers'
+
+export type CloudProviderStatus = {
+  ready: boolean
+  keyStored: boolean
+  keyFromEnv: boolean
+  viaClaudeCode: boolean
+  claudeCliInstalled?: boolean
+  completionModel: string
+  embeddingSource: EmbeddingSource
+  embeddingModel: string
+  embeddingDimensions: number
+}
 
 export type ProviderStatus = {
   local: {
@@ -20,28 +33,20 @@ export type ProviderStatus = {
     completionReady: boolean
     embeddingReady: boolean
   }
-  cloud: {
-    ready: boolean
-    keyStored: boolean
-    completionModel: string
-    embeddingModel: string
-  }
-}
+  localEmbedding: { model: string; dimensions: number; running: boolean }
+} & Record<CloudProviderId, CloudProviderStatus>
 
 export function ProviderSetupDialog({ open, onOpenChange, status, onStatusChange, initialTab = 'local' }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   status: ProviderStatus | null
   onStatusChange: (status: ProviderStatus) => void
-  initialTab?: 'local' | 'cloud'
+  initialTab?: BuildProvider
 }) {
-  const [tab, setTab] = useState(initialTab)
-  const [apiKey, setApiKey] = useState('')
+  const [tab, setTab] = useState<BuildProvider>(initialTab)
   const [completionModel, setCompletionModel] = useState('gemma4:latest')
-  const [embeddingModel, setEmbeddingModel] = useState('BAAI/bge-base-en-v1.5')
+  const [embeddingModel, setEmbeddingModel] = useState('embeddinggemma:latest')
   const [embeddingVectorSize, setEmbeddingVectorSize] = useState(768)
-  const [cloudCompletionModel, setCloudCompletionModel] = useState('claude-sonnet-5-5')
-  const [cloudEmbeddingModel, setCloudEmbeddingModel] = useState('BAAI/bge-base-en-v1.5')
   const [saving, setSaving] = useState(false)
   const [pulling, setPulling] = useState<string | null>(null)
   const [pullLog, setPullLog] = useState<string[]>([])
@@ -53,8 +58,6 @@ export function ProviderSetupDialog({ open, onOpenChange, status, onStatusChange
     setCompletionModel(status.local.completionModel)
     setEmbeddingModel(status.local.embeddingModel)
     setEmbeddingVectorSize(status.local.embeddingVectorSize)
-    setCloudCompletionModel(status.cloud.completionModel)
-    setCloudEmbeddingModel(status.cloud.embeddingModel)
   }, [status])
 
   const refresh = useCallback(async () => {
@@ -62,37 +65,27 @@ export function ProviderSetupDialog({ open, onOpenChange, status, onStatusChange
     if (response.ok) onStatusChange(await response.json())
   }, [onStatusChange])
 
-  const saveLocal = async () => {
+  const saveProvider = async (body: Record<string, unknown>) => {
     setSaving(true); setError('')
     try {
       const response = await fetch('/api/providers', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: 'local', completionModel, embeddingModel, embeddingVectorSize }),
+        body: JSON.stringify(body),
       })
       const payload = await response.json()
-      if (!response.ok) throw new Error(payload.error || 'Could not save the local settings')
+      if (!response.ok) throw new Error(payload.error || 'Could not save the settings')
       onStatusChange(payload)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not save the local settings') }
-    finally { setSaving(false) }
+      return true
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not save the settings')
+      return false
+    } finally { setSaving(false) }
   }
 
-  const saveCloud = async () => {
-    setSaving(true); setError('')
-    try {
-      const response = await fetch('/api/providers', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: 'cloud', apiKey, completionModel: cloudCompletionModel, embeddingModel: cloudEmbeddingModel }),
-      })
-      const payload = await response.json()
-      if (!response.ok) throw new Error(payload.error || 'Could not save the Claude settings')
-      setApiKey('')
-      onStatusChange(payload)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not save the Claude settings') }
-    finally { setSaving(false) }
-  }
+  const saveLocal = () => saveProvider({ provider: 'local', completionModel, embeddingModel, embeddingVectorSize })
 
-  const removeCloud = async () => {
-    const response = await fetch('/api/providers', { method: 'DELETE' })
+  const removeKey = async (provider: CloudProviderId) => {
+    const response = await fetch(`/api/providers?provider=${provider}`, { method: 'DELETE' })
     if (response.ok) onStatusChange(await response.json())
   }
 
@@ -116,12 +109,14 @@ export function ProviderSetupDialog({ open, onOpenChange, status, onStatusChange
       <DialogContent className="max-h-[88dvh] max-w-2xl overflow-hidden rounded-3xl border-white/15 bg-[#0d1138] p-0 text-foreground shadow-2xl">
         <DialogHeader className="px-7 pb-2 pt-7">
           <DialogTitle className="text-3xl font-semibold tracking-tight">Model settings</DialogTitle>
-          <DialogDescription>Choose which model reads your documents. Every project can build with either one.</DialogDescription>
+          <DialogDescription>Choose which model reads your documents. Every project can build with any of them.</DialogDescription>
         </DialogHeader>
-        <Tabs value={tab} onValueChange={value => setTab(value as 'local' | 'cloud')} className="min-h-0 gap-0">
-          <TabsList className="mx-7 mt-4 grid h-11 w-[calc(100%-3.5rem)] grid-cols-2 rounded-full bg-white/[0.06] p-1">
-            <TabsTrigger value="local" className="rounded-full text-sm font-semibold"><HardDrive /> On this computer</TabsTrigger>
-            <TabsTrigger value="cloud" className="rounded-full text-sm font-semibold"><Cloud /> Claude</TabsTrigger>
+        <Tabs value={tab} onValueChange={value => setTab(value as BuildProvider)} className="min-h-0 gap-0">
+          <TabsList className="mx-7 mt-4 grid h-11 w-[calc(100%-3.5rem)] grid-cols-4 rounded-full bg-white/[0.06] p-1">
+            <TabsTrigger value="local" className="rounded-full text-sm font-semibold"><HardDrive /> Ollama</TabsTrigger>
+            {CLOUD_PROVIDER_IDS.map(id => (
+              <TabsTrigger key={id} value={id} className="rounded-full text-sm font-semibold"><Cloud /> {PROVIDER_ADAPTERS[id].label}</TabsTrigger>
+            ))}
           </TabsList>
 
           <TabsContent value="local" className="min-h-0 overflow-auto px-7 py-5" data-hmi-scroll>
@@ -153,19 +148,87 @@ export function ProviderSetupDialog({ open, onOpenChange, status, onStatusChange
             </div>
           </TabsContent>
 
-          <TabsContent value="cloud" className="min-h-0 overflow-auto px-7 py-5" data-hmi-scroll>
-            <div className="grid gap-4">
-              <div className="rounded-2xl bg-white/[0.05] p-4 text-sm"><p>Claude (Anthropic) does the extraction: faster and stronger than a small local model. Embeddings run locally from a Hugging Face model (CPU, no Ollama), because Anthropic has no embedding API. It downloads once on the first build.</p><p className="mt-1 text-xs text-muted-foreground">This app-wide key is available to every GraphRAG project. It is stored in a gitignored file readable only by your operating-system account and never returned to the browser.</p></div>
-              <label className="grid gap-1.5 text-xs"><span>Anthropic API key</span><Input type="password" autoComplete="off" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={status?.cloud.ready ? 'Key configured — enter a new key to replace it' : 'sk-ant-…'} className="h-11 rounded-2xl" /></label>
-              <label className="grid gap-1.5 text-xs"><span>Extraction model</span><Input value={cloudCompletionModel} onChange={event => setCloudCompletionModel(event.target.value)} className="h-11 rounded-2xl" /></label>
-              <label className="grid gap-1.5 text-xs"><span>Embedding model (local Hugging Face, 768-dim)</span><Input value={cloudEmbeddingModel} onChange={event => setCloudEmbeddingModel(event.target.value)} className="h-11 rounded-2xl" /></label>
-              <div className="flex items-center justify-between gap-3"><Button variant="ghost" className="rounded-lg text-red-300" onClick={removeCloud} disabled={!status?.cloud.keyStored}><Trash2 /> Remove stored key</Button><Button className="h-11 rounded-full" onClick={saveCloud} disabled={saving || !apiKey.trim()}>{saving ? <Loader2 className="animate-spin" /> : <Check />} Save settings</Button></div>
-            </div>
-          </TabsContent>
+          {CLOUD_PROVIDER_IDS.map(id => (
+            <TabsContent key={id} value={id} className="min-h-0 overflow-auto px-7 py-5" data-hmi-scroll>
+              <CloudProviderTab
+                adapter={PROVIDER_ADAPTERS[id]}
+                status={status?.[id]}
+                localEmbedding={status?.localEmbedding}
+                saving={saving}
+                onSave={body => saveProvider({ provider: id, ...body })}
+                onRemoveKey={() => removeKey(id)}
+              />
+            </TabsContent>
+          ))}
         </Tabs>
         {error && <p className="bg-destructive/10 px-7 py-3 text-sm text-destructive">{error}</p>}
       </DialogContent>
     </Dialog>
+  )
+}
+
+function CloudProviderTab({ adapter, status, localEmbedding, saving, onSave, onRemoveKey }: {
+  adapter: ProviderAdapter
+  status?: CloudProviderStatus
+  localEmbedding?: ProviderStatus['localEmbedding']
+  saving: boolean
+  onSave: (body: { apiKey: string; completionModel: string; embeddingSource: EmbeddingSource }) => Promise<boolean>
+  onRemoveKey: () => void
+}) {
+  const [apiKey, setApiKey] = useState('')
+  const [completionModel, setCompletionModel] = useState(adapter.defaultCompletionModel)
+  const [embeddingSource, setEmbeddingSource] = useState<EmbeddingSource>('local')
+
+  useEffect(() => {
+    if (!status) return
+    setCompletionModel(status.completionModel)
+    setEmbeddingSource(status.embeddingSource)
+  }, [status])
+
+  const hasKey = Boolean(status?.keyStored || status?.keyFromEnv)
+  const keyHint = status?.keyStored
+    ? 'Key saved. Enter a new key to replace it.'
+    : status?.keyFromEnv
+      ? `Using ${adapter.envKey} from your environment.`
+      : adapter.keyOptional
+        ? 'Optional. Leave empty to use your Claude Code login.'
+        : adapter.keyPlaceholder
+  const localLabel = `On this computer: ${localEmbedding?.model ?? 'Hugging Face model'} (free, private)`
+  const save = async () => { if (await onSave({ apiKey, completionModel, embeddingSource })) setApiKey('') }
+
+  return (
+    <div className="grid gap-4">
+      <div className="rounded-2xl bg-white/[0.05] p-4 text-sm">
+        <p>{adapter.label} reads your documents and finds the entities and links. Your text is sent to {adapter.label}, so don&apos;t use private data.</p>
+        {adapter.keyOptional && <p className="mt-1 text-xs text-muted-foreground">No key? The app uses your Claude Code login instead{status?.claudeCliInstalled === false ? ', but the claude command was not found' : ''}.</p>}
+        <p className="mt-1 text-xs text-muted-foreground">Keys are stored in a gitignored file readable only by your account and are never sent back to the browser.</p>
+        <a className="mt-2 inline-flex items-center gap-1 text-xs text-primary underline-offset-4 hover:underline" href={adapter.keyUrl} target="_blank" rel="noreferrer">Get a {adapter.label} API key <ExternalLink className="h-3 w-3" /></a>
+      </div>
+      <div className="grid grid-cols-2 overflow-hidden rounded-2xl bg-white/[0.05] text-sm">
+        <StatusCell label="API key" ok={hasKey || status?.viaClaudeCode === true} value={hasKey ? 'Configured' : status?.viaClaudeCode ? 'Claude Code login' : 'Missing'} />
+        <StatusCell label="Preset" ok={status?.ready === true} value={status?.ready ? 'Ready' : 'Needs setup'} />
+      </div>
+      <label className="grid gap-1.5 text-xs"><span>{adapter.label} API key</span><Input type="password" autoComplete="off" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={keyHint} className="h-11 rounded-2xl" /></label>
+      <label className="grid gap-1.5 text-xs"><span>Extraction model</span><Input value={completionModel} onChange={event => setCompletionModel(event.target.value)} className="h-11 rounded-2xl" /></label>
+      <label className="grid gap-1.5 text-xs">
+        <span>Embedding model</span>
+        <select value={embeddingSource} onChange={event => setEmbeddingSource(event.target.value as EmbeddingSource)} className="h-11 rounded-2xl border border-white/15 bg-transparent px-3 text-sm">
+          <option value="local" className="bg-[#0d1138]">{localLabel}</option>
+          {adapter.embedding && <option value="provider" className="bg-[#0d1138]">{adapter.label} API: {adapter.embedding.model}</option>}
+        </select>
+        <span className="text-muted-foreground">
+          {embeddingSource === 'local'
+            ? 'Downloads once (about 220 MB) on the first build, or ahead of time with pnpm download-embeddings.'
+            : `Uses your ${adapter.label} key. Nothing to download.`}
+          {!adapter.embedding && ' Anthropic has no embedding API, so Claude always uses the local model.'}
+        </span>
+      </label>
+      <p className="text-xs text-amber-200/80">After changing the embedding model, rebuild the project so questions use matching embeddings.</p>
+      <div className="flex items-center justify-between gap-3">
+        <Button variant="ghost" className="rounded-lg text-red-300" onClick={onRemoveKey} disabled={!status?.keyStored}><Trash2 /> Remove saved key</Button>
+        <Button className="h-11 rounded-full" onClick={save} disabled={saving || (!apiKey.trim() && !hasKey && !adapter.keyOptional)}>{saving ? <Loader2 className="animate-spin" /> : <Check />} Save settings</Button>
+      </div>
+    </div>
   )
 }
 

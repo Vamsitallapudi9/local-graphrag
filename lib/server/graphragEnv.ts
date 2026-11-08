@@ -1,4 +1,4 @@
-export type GraphRagProvider = 'configured' | 'openai' | 'anthropic' | 'ollama'
+export type GraphRagProvider = 'configured' | 'openai' | 'anthropic' | 'gemini' | 'ollama'
 
 // GraphRAG's config loader hard-fails on any ${VAR} in settings.yaml that is
 // missing from the environment, so every variable referenced there must be
@@ -20,7 +20,8 @@ export function resolveGraphRagEnv(source: NodeJS.ProcessEnv = process.env): {
   let embeddingModel: string
 
   if (env.GRAPHRAG_COMPLETION_PROVIDER) {
-    provider = env.GRAPHRAG_COMPLETION_PROVIDER === 'ollama' ? 'ollama' : env.GRAPHRAG_COMPLETION_PROVIDER === 'openai' ? 'openai' : env.GRAPHRAG_COMPLETION_PROVIDER === 'anthropic' ? 'anthropic' : 'configured'
+    const known: GraphRagProvider[] = ['ollama', 'openai', 'anthropic', 'gemini']
+    provider = known.find(name => name === env.GRAPHRAG_COMPLETION_PROVIDER) ?? 'configured'
     completionModel = env.GRAPHRAG_COMPLETION_MODEL || 'configured'
     embeddingModel = env.GRAPHRAG_EMBEDDING_MODEL || 'configured'
   } else {

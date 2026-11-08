@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getIndexJob, startIndexJob, type IndexJob, type IndexJobEvent } from '@/lib/server/indexJob'
+import { normalizeBuildProvider } from '@/lib/providers'
 
 // The index job is owned by the server (lib/server/indexJob.ts) and keeps
 // running if this stream disconnects — closing the Builder mid-build must
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
           return
         }
       } else {
-        const provider = request.nextUrl.searchParams.get('provider') === 'cloud' ? 'cloud' : 'local'
+        const provider = normalizeBuildProvider(request.nextUrl.searchParams.get('provider')) ?? 'local'
         const result = await startIndexJob(method, provider, request.nextUrl.searchParams.get('fresh') === '1')
         if (result.error || !result.job) {
           send({ type: 'done', ok: false, code: result.error ?? 'START_FAILED' })

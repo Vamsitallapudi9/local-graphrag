@@ -1,11 +1,12 @@
 'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, Cloud, Download, FileInput, FilePlus, FolderInput, HardDrive, Loader2, Pencil, Plus, RotateCcw, Settings2, Square, Trash2, X } from 'lucide-react'
+import { Check, Cloud, Download, FileInput, FilePlus, FolderInput, Loader2, Pencil, Plus, RotateCcw, Settings2, Square, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { CountUp, Ring, SplitText } from '@/components/kinetic'
 import { ProviderSetupDialog, type ProviderStatus } from '@/components/ProviderSetupDialog'
+import { BUILD_PROVIDER_LABELS, normalizeBuildProvider, type BuildProvider } from '@/lib/providers'
 
 type Upload = {
   name: string
@@ -60,8 +61,9 @@ export default function CorpusPanel({ onProjectNamed, onProjectDeleted }: { onPr
   const [progress, setProgress] = useState(0)
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null)
   const [providerSetupOpen, setProviderSetupOpen] = useState(false)
-  const [providerSetupTab, setProviderSetupTab] = useState<'local' | 'cloud'>('local')
-  const [activeBuildProvider, setActiveBuildProvider] = useState<'local' | 'cloud' | null>(null)
+  const [providerSetupTab, setProviderSetupTab] = useState<BuildProvider>('local')
+  const [activeBuildProvider, setActiveBuildProvider] = useState<BuildProvider | null>(null)
+  const [buildChoice, setBuildChoice] = useState<BuildProvider | null>(null)
   const [jobProjectName, setJobProjectName] = useState<string | null>(null)
   const [anyJobRunning, setAnyJobRunning] = useState(false)
   const [jobModel, setJobModel] = useState<string | null>(null)
@@ -129,14 +131,14 @@ export default function CorpusPanel({ onProjectNamed, onProjectDeleted }: { onPr
       try {
         const response = await fetch('/api/corpus/index/status', { cache: 'no-store' })
         if (!response.ok || cancelled) return
-        const job = await response.json() as { running?: boolean; status?: string; startedAt?: number | null; progress?: number; buildProvider?: 'local' | 'cloud' | null; projectName?: string | null; completionModel?: string | null }
+        const job = await response.json() as { running?: boolean; status?: string; startedAt?: number | null; progress?: number; buildProvider?: string | null; projectName?: string | null; completionModel?: string | null }
         const isRunning = job.running === true
         const selectedProjectIsRunning = isRunning && job.projectName === state.kgName
         setAnyJobRunning(isRunning)
         setJobProjectName(job.projectName ?? null)
         setJobModel(job.completionModel ?? null)
         setRunning(selectedProjectIsRunning)
-        setActiveBuildProvider(job.buildProvider ?? null)
+        setActiveBuildProvider(normalizeBuildProvider(job.buildProvider))
         if (typeof job.progress === 'number') setProgress(job.progress)
         if (selectedProjectIsRunning) {
           setRunStatus('running')
@@ -318,7 +320,7 @@ export default function CorpusPanel({ onProjectNamed, onProjectDeleted }: { onPr
     }
   }
 
-  const startIndex = (provider: 'local' | 'cloud', fresh = false) => {
+  const startIndex = (provider: BuildProvider, fresh = false) => {
     if (anyJobRunning) return
     if (!providerStatus?.[provider].ready) {
       setProviderSetupTab(provider)
@@ -361,9 +363,14 @@ export default function CorpusPanel({ onProjectNamed, onProjectDeleted }: { onPr
     }
   }
 
+  // Until the user picks one, default to the first provider that is ready.
+  const selectedBuildProvider: BuildProvider = buildChoice
+    ?? (['claude', 'openai', 'gemini', 'local'] as const).find(id => providerStatus?.[id].ready)
+    ?? 'claude'
+
   const rebuildFromScratch = () => {
     if (window.confirm('Rebuild everything from scratch? This clears the cache and re-processes every document. It takes longer and costs more tokens.')) {
-      startIndex(activeBuildProvider ?? (providerStatus?.local.ready && !providerStatus?.cloud.ready ? 'local' : 'cloud'), true)
+      startIndex(buildChoice ?? activeBuildProvider ?? selectedBuildProvider, true)
     }
   }
 
@@ -550,8 +557,17 @@ export default function CorpusPanel({ onProjectNamed, onProjectDeleted }: { onPr
                   </div>
                 ) : (
                   <>
-                    <Button variant="outline" className="h-11 rounded-full px-5" onClick={() => startIndex('local')} disabled={!files.length}><HardDrive /> Build with Ollama</Button>
-                    <Button className="h-11 rounded-full px-5" onClick={() => startIndex('cloud')} disabled={!files.length}><Cloud /> Build with Claude</Button>
+                    <select
+                      aria-label="Model provider for this build"
+                      value={selectedBuildProvider}
+                      onChange={event => setBuildChoice(event.target.value as BuildProvider)}
+                      className="h-11 rounded-full border border-white/15 bg-transparent px-4 text-sm"
+                    >
+                      {(Object.keys(BUILD_PROVIDER_LABELS) as BuildProvider[]).map(id => (
+                        <option key={id} value={id} className="bg-[#0d1138]">{BUILD_PROVIDER_LABELS[id]}{providerStatus && !providerStatus[id].ready ? ' (needs setup)' : ''}</option>
+                      ))}
+                    </select>
+                    <Button className="h-11 rounded-full px-5" onClick={() => startIndex(selectedBuildProvider)} disabled={!files.length}><Cloud /> Build with {BUILD_PROVIDER_LABELS[selectedBuildProvider]}</Button>
                     <Button variant="outline" className="h-11 rounded-full px-5" onClick={() => rebuildFromScratch()} disabled={!files.length} title="Clear cache and old results, then regenerate embeddings and the whole graph from every document"><RotateCcw /> Rebuild from scratch</Button>
                   </>
                 )}
@@ -612,7 +628,7 @@ export default function CorpusPanel({ onProjectNamed, onProjectDeleted }: { onPr
                   <div className="min-w-0 flex-1">
                     <h3 className="text-lg font-semibold leading-tight">Build log</h3>
                     <p className="truncate text-sm text-muted-foreground">
-                      {running ? `${formatElapsed(elapsed)}, ${progress}%${activeBuildProvider ? ` with ${activeBuildProvider === 'cloud' ? 'Claude' : 'Ollama'}` : ''}${jobModel ? ` (${jobModel})` : ''}` : runStatus === 'failed' ? 'Last build failed' : runStatus === 'succeeded' ? 'Last build finished' : 'Waiting for a build'}
+                      {running ? `${formatElapsed(elapsed)}, ${progress}%${activeBuildProvider ? ` with ${BUILD_PROVIDER_LABELS[activeBuildProvider]}` : ''}${jobModel ? ` (${jobModel})` : ''}` : runStatus === 'failed' ? 'Last build failed' : runStatus === 'succeeded' ? 'Last build finished' : 'Waiting for a build'}
                     </p>
                   </div>
                 </div>

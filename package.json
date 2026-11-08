@@ -16,7 +16,8 @@
     "build": "next build --turbopack",
     "start": "next start --hostname 127.0.0.1",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "download-embeddings": "uv run --frozen python scripts/embed_server.py --download-only"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

@@ -4,7 +4,7 @@
 
 Drop in your documents. Get a 3D map of the people, things and ideas inside them. Then ask questions and watch the answer light up on the map.
 
-Everything runs on your own computer. Claude does the reading through your normal Claude Code login, so there is no API key to manage. Prefer fully offline? Switch to the Ollama preset.
+Bring your own model: **OpenAI**, **Claude** or **Gemini** with an API key, or go fully offline with **Ollama**. Embeddings run locally by default, or through the OpenAI / Gemini API if you prefer.
 
 <!-- Add a screenshot: save it as docs/screenshot.png, then uncomment the line below. -->
 <!-- ![Local GraphRAG: 3D knowledge graph with chat](docs/screenshot.png) -->
@@ -18,33 +18,75 @@ Everything runs on your own computer. Claude does the reading through your norma
 
 ## Features
 
-- **Claude without an API key.** A tiny local bridge (`scripts/llm_server.py`) lets GraphRAG talk to Claude through the Claude Code CLI.
-- **Local embeddings.** Text-to-numbers runs on your machine with a Hugging Face model, so nothing extra to install or pay for.
+- **Three cloud adapters: OpenAI, Claude and Gemini.** Paste an API key in the app (or `.env`), pick a model, build. One adapter file (`lib/providers.ts`) describes each provider.
+- **Your choice of embeddings.** Use a free local Hugging Face model (`BAAI/bge-base-en-v1.5`, runs on CPU), or the OpenAI / Gemini embedding API.
+- **Claude without an API key.** No Anthropic key? A small local bridge talks to Claude through your Claude Code login instead.
 - **Fully offline option.** An Ollama preset runs both extraction and embeddings on local models.
 - **Interactive 3D graph.** Force-directed layout with search, details on click, and answers highlighted on the map.
 - **Four ways to ask.** Deep, specific, overview and simple search modes.
 - **Projects and archives.** Keep several graphs, save snapshots, import and export them.
+- **Keys stay private.** Saved with owner-only file permissions, never sent to the browser, masked in logs.
 - **PDF and `.txt` input.**
 
-Details of how each part works: [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md).
+## Documentation
+
+New to GraphRAG, embeddings or knowledge graphs? The [docs](docs/README.md) explain every part in plain words, from "what is an embedding?" to a tour of every file.
 
 ## Run it
 
-You need: Node 20.9+, [pnpm](https://pnpm.io), Python 3.12, [uv](https://docs.astral.sh/uv/), and either [Claude Code](https://claude.com/claude-code) logged in or [Ollama](https://ollama.com) running.
+### 1. Install
+
+You need: Node 20.9+, [pnpm](https://pnpm.io), Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone https://github.com/Vamsitallapudi9/local-graphrag.git
 cd local-graphrag
 pnpm install
 uv sync --frozen
+```
+
+### 2. Get an API key for the model you want
+
+| Provider | Get a key | `.env` variable | Default model | Embedding options |
+|----------|-----------|-----------------|---------------|-------------------|
+| **OpenAI** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | `OPENAI_API_KEY` | `gpt-5.4-mini` | Local model, or `text-embedding-3-small` |
+| **Claude** | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) | `ANTHROPIC_API_KEY` | `claude-sonnet-5-5` | Local model (Anthropic has no embedding API) |
+| **Gemini** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | `GEMINI_API_KEY` | `gemini-flash-latest` | Local model, or `gemini-embedding-001` |
+| **Ollama** (offline) | No key. Install [Ollama](https://ollama.com/download) | none | `gemma4` | `embeddinggemma` (local) |
+
+You can paste the key in the app later (**Projects → Model settings**), or put it in a `.env` file now:
+
+```bash
+cp .env.example .env    # then fill in only the key(s) you need
+```
+
+Keys are never committed: `.env` and `.graphrag/` are in `.gitignore`.
+
+> **Claude without a key:** if [Claude Code](https://claude.com/claude-code) is installed and logged in, you can leave `ANTHROPIC_API_KEY` empty and Claude will be reached through the `claude` CLI (slower, but no API bill).
+
+### 3. Download the embedding model (before your first build)
+
+If you use the **local** embedding model (the default, and the only option for Claude), download it once (about 220 MB, saved in `.graphrag/hf-models/`):
+
+```bash
+pnpm download-embeddings
+```
+
+Skipping this is fine, because the first build downloads it automatically. It just makes that build slower. Using OpenAI or Gemini embeddings instead? Choose them in **Model settings**. There is nothing to download.
+
+For Ollama, open **Model settings → Ollama** and press **Pull model** for both models (or run `ollama pull gemma4` and `ollama pull embeddinggemma`).
+
+### 4. Start
+
+```bash
 pnpm dev
 ```
 
-Open http://127.0.0.1:3000. With Claude, the first build downloads a ~220 MB embedding model once.
+Open http://127.0.0.1:3000.
 
 ## Use it
 
-1. Open **Projects**, name a project, add files, press build.
+1. Open **Projects**, name a project and add files. Pick a provider in the dropdown (check its key and model under **Model settings**), then press **Build with …**.
 2. Close the panel. Drag to rotate, scroll to zoom, click a dot to see details, `Cmd/Ctrl+K` to search.
 3. Open **Ask** to chat. Pick a mode:
 
@@ -57,18 +99,22 @@ Open http://127.0.0.1:3000. With Claude, the first build downloads a ~220 MB emb
 
 ## Privacy
 
-Your documents stay on your machine, except the text pieces sent to Claude to be read. Don't use confidential or personal data with the Claude preset; use the Ollama preset to keep everything local.
+Your files, graph and keys stay on your machine. When you build or ask with **OpenAI, Claude or Gemini**, the text pieces being read are sent to that provider, and so is the text being embedded if you chose their embedding API. Don't use confidential or personal data with a cloud provider. Use the **Ollama** preset with local embeddings to keep everything on your computer.
 
 ## Project layout
 
 ```
-app/          pages and API routes (Next.js)
-components/   the 3D graph, chat, projects panel
-lib/          graph math and the server code that runs builds
-scripts/      the two small local servers (Claude bridge, embeddings)
-settings.yaml GraphRAG settings
-prompts/      the instructions GraphRAG gives Claude
+app/              pages and API routes (Next.js)
+components/       the 3D graph, chat, projects panel, model settings
+lib/providers.ts  the OpenAI / Claude / Gemini / Ollama adapters
+lib/server/       provider config, build runner, PDF + Parquet converters
+scripts/          local helpers: embedding server, Claude Code bridge
+settings.yaml     GraphRAG settings (filled in from the chosen adapter)
+prompts/          the instructions GraphRAG gives the model
+docs/             beginner-friendly documentation
 ```
+
+A full file-by-file tour is in [docs/08-code-tour.md](docs/08-code-tour.md).
 
 ## Checks
 

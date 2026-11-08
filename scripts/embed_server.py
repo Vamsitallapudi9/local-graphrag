@@ -3,6 +3,9 @@
 Runs a Hugging Face embedding model on CPU through fastembed (ONNX, no torch,
 no Ollama). GraphRAG talks to it as if it were the OpenAI embeddings API.
 Binds to 127.0.0.1 only.
+
+Download the model ahead of time (no server):
+    uv run --frozen python scripts/embed_server.py --download-only
 """
 import base64
 import json
@@ -15,11 +18,15 @@ from fastembed import TextEmbedding
 
 MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-base-en-v1.5")
 PORT = int(os.environ.get("EMBED_PORT", "11435"))
-CACHE = os.environ.get("EMBED_CACHE_DIR") or None
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CACHE = os.environ.get("EMBED_CACHE_DIR") or os.path.join(ROOT, ".graphrag", "hf-models")
 
 print(f"loading {MODEL} ...", flush=True)
 model = TextEmbedding(model_name=MODEL, cache_dir=CACHE)
 DIM = len(next(iter(model.embed(["warmup"]))))
+if "--download-only" in sys.argv:
+    print(f"downloaded: {MODEL} dim={DIM} -> {CACHE}", flush=True)
+    sys.exit(0)
 print(f"ready: {MODEL} dim={DIM} port={PORT}", flush=True)
 
 

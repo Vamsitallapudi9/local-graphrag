@@ -3,13 +3,13 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { resolveQueryEnv } from '@/lib/server/providerConfig'
+import { redactSecrets } from '@/lib/server/redact'
 
 type Entity = { id: string; title?: string }
 
 const METHODS = ['drift', 'local', 'global', 'basic']
 
 const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
-const redact = (s: string) => s.replace(/api_key=['"][^'"\n]+['"]/gi, "api_key='[REDACTED]'").replace(/sk-[A-Za-z0-9_-]+/g, 'sk-REDACTED')
 
 // Entities whose title appears as a whole phrase in the text.
 function findEntityIds(text: string, entities: Entity[], max = 30) {
@@ -56,11 +56,11 @@ export async function POST(req: NextRequest) {
       child = spawn('uv', ['run', 'graphrag', 'query', question, '--method', method, '--root', root, '--data', path.join(root, 'output')], { cwd: root, env })
       let out = ''
       child.stdout?.on('data', (chunk: Buffer) => {
-        const text = redact(chunk.toString())
+        const text = redactSecrets(chunk.toString())
         out += text
         send('answer-chunk', { text })
       })
-      child.stderr?.on('data', (chunk: Buffer) => console.warn('[chat] graphrag:', redact(chunk.toString()).trim()))
+      child.stderr?.on('data', (chunk: Buffer) => console.warn('[chat] graphrag:', redactSecrets(chunk.toString()).trim()))
       child.on('error', () => fail('The GraphRAG query process could not start.'))
       child.on('close', async (code) => {
         if (cancelled) return
