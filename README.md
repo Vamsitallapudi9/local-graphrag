@@ -6,8 +6,7 @@ Drop in your documents. Get a 3D map of the people, things and ideas inside them
 
 Bring your own model: **OpenAI**, **Claude** or **Gemini** with an API key, or go fully offline with **Ollama**. Embeddings run locally by default, or through the OpenAI / Gemini API if you prefer.
 
-<!-- Add a screenshot: save it as docs/screenshot.png, then uncomment the line below. -->
-<!-- ![Local GraphRAG: 3D knowledge graph with chat](docs/screenshot.png) -->
+![Local GraphRAG: a 3D knowledge graph built from the Apollo 11 Wikipedia article, with an answer highlighting the entities it used](docs/screenshot.webp)
 
 ## What it does
 
