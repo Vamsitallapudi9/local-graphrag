@@ -1,0 +1,7 @@
+overrides:
+  lodash: 4.18.0
+  postcss: 8.5.10
+allowBuilds:
+  '@tailwindcss/oxide': true
+  sharp: true
+  unrs-resolver: true

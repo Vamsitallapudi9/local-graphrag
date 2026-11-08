@@ -1,0 +1,24 @@
+-Goal-
+Extract the named entities and explicit relationships needed to build a knowledge graph from the supplied technical text.
+
+-Entity rules-
+Use only these entity types: [{entity_types}].
+For each entity return:
+("entity"<|><ENTITY_NAME><|><ENTITY_TYPE><|><concise factual description grounded in the text>)
+
+-Relationship rules-
+Create a relationship only when the text explicitly connects two extracted entities.
+For each relationship return:
+("relationship"<|><SOURCE_ENTITY><|><TARGET_ENTITY><|><factual relationship description><|><strength from 1 to 10>)
+
+-Output rules-
+- Return the entity and relationship records as one list.
+- Separate records with ##.
+- Use English.
+- Do not infer entities or relationships that are not supported by the text.
+- Finish with <|COMPLETE|>.
+
+-Text-
+{input_text}
+
+-Output-
